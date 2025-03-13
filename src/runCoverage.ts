@@ -23,7 +23,16 @@ interface CoverageData {
   methods: { [key: string]: MethodsCoverage };
 }
 
+let coverageListener: vscode.Disposable | undefined;
+// create decoration type to add green overlay on covered liens
+const decorationType = vscode.window.createTextEditorDecorationType({
+  backgroundColor: "rgb(0, 255, 0, 0.1)",
+  isWholeLine: true,
+});
+
 export async function runCoverage(context: vscode.ExtensionContext) {
+  stopCoverage();
+
   // get current editor
   let editor = vscode.window.activeTextEditor;
   if (!editor) {
@@ -80,7 +89,17 @@ export async function runCoverage(context: vscode.ExtensionContext) {
       }
       // parse coverage file
       coverage = parseJSON(data.toString());
+
+      // apply coverage to the currently opened file
       applyCoverage(coverage);
+
+      // add event listener to apply the coverage when the user
+      // change to another file, in case mulitple files are being covered
+      coverageListener = vscode.window.onDidChangeActiveTextEditor(() => {
+        applyCoverage(coverage);
+        console.log("Active Editor Changed: " + editor?.document.fileName);
+      });
+      context.subscriptions.push(coverageListener);
     });
   } catch (error) {
     vscode.window.showErrorMessage((error as Error).message);
@@ -110,15 +129,8 @@ function parseJSON(data: any): Map<string, number[]> {
 }
 
 function applyCoverage(coverage: Map<string, number[]>) {
-  // create decoration type to add green overlay on covered liens
-  const decorationType = vscode.window.createTextEditorDecorationType({
-    backgroundColor: "rgb(0, 255, 0, 0.1)",
-    isWholeLine: true,
-  });
-
   let editor = vscode.window.activeTextEditor;
   if (!editor) {
-    vscode.window.showErrorMessage("No Active Editor!");
     return;
   }
 
@@ -129,6 +141,7 @@ function applyCoverage(coverage: Map<string, number[]>) {
   // create ranges to apply decoration to the covered liens
   const decorations: vscode.DecorationOptions[] =
     coveredLines?.map((line) => {
+      // apply decoration to the entire line
       let range = new vscode.Range(
         new vscode.Position(line - 1, 0),
         new vscode.Position(line - 1, Number.MAX_VALUE)
@@ -138,4 +151,17 @@ function applyCoverage(coverage: Map<string, number[]>) {
 
   editor.setDecorations(decorationType, decorations);
   console.log("decoratiosn applied");
+}
+
+export function stopCoverage() {
+  // clear applied coverage on current file
+  vscode.window.visibleTextEditors.forEach((editor) => {
+    editor.setDecorations(decorationType, []);
+  });
+
+  if (coverageListener) {
+    // dispose the event listener which handles file change
+    coverageListener?.dispose();
+    vscode.window.showInformationMessage("Stoped Coverage");
+  }
 }

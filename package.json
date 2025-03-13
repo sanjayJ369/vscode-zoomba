@@ -17,6 +17,10 @@
       {
         "command": "zoomba.runCoverage",
         "title": "Run ZoomBA Coverage"
+      },
+      {
+        "command": "zoomba.stopCoverage",
+        "title": "Stop ZoomBA Coverage"
       }
     ],
     "languages": [

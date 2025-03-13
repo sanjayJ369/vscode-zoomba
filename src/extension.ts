@@ -1,16 +1,22 @@
 import * as vscode from "vscode";
-import { runCoverage } from "./runCoverage";
+import { runCoverage, stopCoverage } from "./runCoverage";
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('Congratulations, your extension "zoomba" is now active!');
-  const disposable = vscode.commands.registerCommand(
+  const startCoverage = vscode.commands.registerCommand(
     "zoomba.runCoverage",
     () => {
       runCoverage(context);
     }
   );
 
-  context.subscriptions.push(disposable);
+  const disposeCoverage = vscode.commands.registerCommand(
+    "zoomba.stopCoverage",
+    stopCoverage
+  );
+
+  context.subscriptions.push(disposeCoverage);
+  context.subscriptions.push(startCoverage);
 }
 
 export function deactivate() {}
