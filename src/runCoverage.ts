@@ -43,6 +43,7 @@ export async function runCoverage(context: vscode.ExtensionContext) {
   // get name of the file
   let file = editor.document.fileName;
   let fileDir = dirname(file);
+  let tempDir = "/tmp";
   let coverage: Map<string, number[]>;
   let coverageFile: string;
   // run the file though zmc
@@ -53,7 +54,7 @@ export async function runCoverage(context: vscode.ExtensionContext) {
       // Run an interactive shell so that the alias is loaded
       exec(
         `${userShell} -i -c "zmc ${file}"`,
-        { cwd: fileDir },
+        { cwd: tempDir },
         async (error, stdout, stderr) => {
           if (error) {
             vscode.window.showErrorMessage(`Error: ${error.message}`);
@@ -61,7 +62,7 @@ export async function runCoverage(context: vscode.ExtensionContext) {
           }
 
           // get all coverage files
-          let files = await readdir(dirname(file));
+          let files = await readdir(tempDir);
           let regex = /.*coverage\.txt$/;
           files = files.filter((file) => regex.test(file));
 
@@ -83,7 +84,7 @@ export async function runCoverage(context: vscode.ExtensionContext) {
   try {
     // read coverage file
     coverageFile = await getCoverageFile();
-    readFile(fileDir + "/" + coverageFile, (err, data) => {
+    readFile(tempDir + "/" + coverageFile, (err, data) => {
       if (err) {
         vscode.window.showErrorMessage(err.message);
       }
@@ -162,6 +163,6 @@ export function stopCoverage() {
   if (coverageListener) {
     // dispose the event listener which handles file change
     coverageListener?.dispose();
-    vscode.window.showInformationMessage("Stoped Coverage");
+    vscode.window.showInformationMessage("Stopped Coverage");
   }
 }
