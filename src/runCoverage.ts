@@ -1,9 +1,9 @@
-import { rejects } from "assert";
 import { exec } from "child_process";
 import { readFile } from "fs";
 import { readdir } from "fs/promises";
-import { dirname, posix, resolve } from "path";
+import { tmpdir } from "os";
 import * as vscode from "vscode";
+import { delay, normalizePath } from "./utils";
 
 interface LinesCoverage {
   [lineNumber: number]: boolean;
@@ -42,49 +42,53 @@ export async function runCoverage(context: vscode.ExtensionContext) {
 
   // get name of the file
   let file = editor.document.fileName;
-  let fileDir = dirname(file);
-  let tempDir = "/tmp";
+  let tempDir = tmpdir();
   let coverage: Map<string, number[]>;
   let coverageFile: string;
+  let isWindows = process.platform === "win32";
   // run the file though zmc
-  const userShell = process.env.SHELL || "/bin/zsh";
+  const userShell = isWindows ? "powershell.exe" : process.env.SHELL;
+  let shellCmd = `${userShell} -i -c "zmc ${file}"`; // unix command
+
+  if (isWindows) {
+    // powershell command
+    shellCmd = `${userShell} -Command "& {zmc '${file.replace(/'/g, "''")}'}"`;
+  }
 
   async function getCoverageFile(): Promise<string> {
     return new Promise((resolve, reject) => {
       // Run an interactive shell so that the alias is loaded
-      exec(
-        `${userShell} -i -c "zmc ${file}"`,
-        { cwd: tempDir },
-        async (error, stdout, stderr) => {
-          if (error) {
-            vscode.window.showErrorMessage(`Error: ${error.message}`);
-            reject(error);
-          }
-
-          // get all coverage files
-          let files = await readdir(tempDir);
-          let regex = /.*coverage\.txt$/;
-          files = files.filter((file) => regex.test(file));
-
-          // get the latest file
-          coverageFile = files.reduce((prev, curr) => {
-            let getFileDate = function (name: string): number {
-              return Number(
-                name.slice(0, name.length - 13).replaceAll("_", "")
-              );
-            };
-            return getFileDate(curr) > getFileDate(prev) ? curr : prev;
-          });
-          resolve(coverageFile);
+      exec(shellCmd, { cwd: tempDir }, async (error, stdout, stderr) => {
+        if (error) {
+          vscode.window.showErrorMessage(`Error: ${error.message}`);
+          reject(error);
         }
-      );
+        if (stderr) {
+          vscode.window.showErrorMessage(`Error: ${stderr}`);
+          reject(stderr);
+        }
+        // get all coverage files
+        let files = await readdir(tempDir);
+        let regex = /.*coverage\.txt$/;
+        files = files.filter((file) => regex.test(file));
+
+        // get the latest file
+        coverageFile = files.reduce((prev, curr) => {
+          let getFileDate = function (name: string): number {
+            return Number(name.slice(0, name.length - 13).replaceAll("_", ""));
+          };
+          return getFileDate(curr) > getFileDate(prev) ? curr : prev;
+        });
+        resolve(coverageFile);
+      });
     });
   }
 
   try {
     // read coverage file
     coverageFile = await getCoverageFile();
-    readFile(tempDir + "/" + coverageFile, (err, data) => {
+    let add = isWindows ? "\\" : "/";
+    readFile(tempDir + add + coverageFile, (err, data) => {
       if (err) {
         vscode.window.showErrorMessage(err.message);
       }
@@ -96,7 +100,8 @@ export async function runCoverage(context: vscode.ExtensionContext) {
 
       // add event listener to apply the coverage when the user
       // change to another file, in case mulitple files are being covered
-      coverageListener = vscode.window.onDidChangeActiveTextEditor(() => {
+      coverageListener = vscode.window.onDidChangeActiveTextEditor(async () => {
+        await delay(500);
         applyCoverage(coverage);
         console.log("Active Editor Changed: " + editor?.document.fileName);
       });
@@ -122,21 +127,21 @@ function parseJSON(data: any): Map<string, number[]> {
         coveredLines.push(Number(line));
       }
     });
-
+    file = normalizePath(file);
     filesMap.set(file, coveredLines);
   });
-  console.log(filesMap);
   return filesMap;
 }
 
 function applyCoverage(coverage: Map<string, number[]>) {
   let editor = vscode.window.activeTextEditor;
+
   if (!editor) {
+    vscode.window.showErrorMessage("No active editor");
     return;
   }
 
-  let fileName: string = editor.document.fileName;
-  console.log(Object.keys(coverage));
+  let fileName: string = normalizePath(editor.document.fileName);
   let coveredLines = coverage.get(fileName);
 
   // create ranges to apply decoration to the covered liens
@@ -163,6 +168,7 @@ export function stopCoverage() {
   if (coverageListener) {
     // dispose the event listener which handles file change
     coverageListener?.dispose();
+    coverageListener = undefined;
     vscode.window.showInformationMessage("Stopped Coverage");
   }
 }
